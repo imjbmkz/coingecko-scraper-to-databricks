@@ -1,0 +1,4 @@
+# One CoinGecko coin ID per line. These are IDs, not ticker symbols.
+bitcoin
+ethereum
+

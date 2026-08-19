@@ -1,9 +1,19 @@
 from unittest.mock import Mock
 
-from coingecko_ingest.job import Settings, run_ingestion
+from pathlib import Path
+
+from coingecko_ingest.job import Settings, load_coin_ids, run_ingestion
 
 
-def test_uploads_original_response_bytes_without_local_files():
+def test_load_coin_ids_ignores_comments_blanks_and_duplicates(tmp_path):
+    coin_file = tmp_path / "coins.txt"
+    coin_file.write_text("bitcoin\n\nethereum # comment\nbitcoin\n", encoding="utf-8")
+    assert load_coin_ids(coin_file) == ["bitcoin", "ethereum"]
+
+
+def test_uploads_original_response_bytes_without_local_files(tmp_path):
+    coin_file = tmp_path / "coins.txt"
+    coin_file.write_text("bitcoin\n", encoding="utf-8")
     session = Mock()
     mkdir = Mock()
     mkdir.raise_for_status = Mock()
@@ -21,13 +31,14 @@ def test_uploads_original_response_bytes_without_local_files():
     session.put.side_effect = [mkdir, upload_one, upload_two]
 
     paths = run_ingestion(
-        Settings("https://example.databricks.com", "token", "/Volumes/c/s/v", "raw"),
+        Settings(
+            "https://example.databricks.com", "token", "/Volumes/c/s/v", "raw", coin_file
+        ),
         session,
     )
 
     assert len(paths) == 2
     assert session.put.call_args_list[1].kwargs["data"] == source_one.content
     assert session.put.call_args_list[2].kwargs["data"] == source_two.content
-    assert paths[0].startswith("/Volumes/c/s/v/raw/market_chart_")
-    assert paths[1].startswith("/Volumes/c/s/v/raw/ohlc_")
-
+    assert paths[0].startswith("/Volumes/c/s/v/raw/bitcoin/market_chart_")
+    assert paths[1].startswith("/Volumes/c/s/v/raw/bitcoin/ohlc_")
