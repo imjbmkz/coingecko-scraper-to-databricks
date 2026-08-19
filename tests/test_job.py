@@ -1,6 +1,5 @@
+import json
 from unittest.mock import Mock
-
-from pathlib import Path
 
 from coingecko_ingest.job import Settings, load_coin_ids, run_ingestion
 
@@ -11,7 +10,7 @@ def test_load_coin_ids_ignores_comments_blanks_and_duplicates(tmp_path):
     assert load_coin_ids(coin_file) == ["bitcoin", "ethereum"]
 
 
-def test_uploads_original_response_bytes_without_local_files(tmp_path):
+def test_uploads_metadata_envelope_without_local_files(tmp_path):
     coin_file = tmp_path / "coins.txt"
     coin_file.write_text("bitcoin\n", encoding="utf-8")
     session = Mock()
@@ -38,7 +37,17 @@ def test_uploads_original_response_bytes_without_local_files(tmp_path):
     )
 
     assert len(paths) == 2
-    assert session.put.call_args_list[1].kwargs["data"] == source_one.content
-    assert session.put.call_args_list[2].kwargs["data"] == source_two.content
+    first_document = json.loads(session.put.call_args_list[1].kwargs["data"])
+    second_document = json.loads(session.put.call_args_list[2].kwargs["data"])
+    assert first_document == {
+        "endpoint": "/coins/bitcoin/market_chart",
+        "parameters": {"vs_currency": "usd", "days": "1"},
+        "response": {"prices": [[1, 2]]},
+    }
+    assert second_document == {
+        "endpoint": "/coins/bitcoin/ohlc",
+        "parameters": {"vs_currency": "usd", "days": "1"},
+        "response": [[1, 2, 3, 4, 5]],
+    }
     assert paths[0].startswith("/Volumes/c/s/v/raw/bitcoin/market_chart_")
     assert paths[1].startswith("/Volumes/c/s/v/raw/bitcoin/ohlc_")

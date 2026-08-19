@@ -1,8 +1,18 @@
 # CoinGecko to Databricks Volume
 
-This Python job fetches the raw JSON bytes from each configured coin's 1-day
-market-chart and OHLC endpoints and uploads each response directly to a Unity Catalog Volume. It
+This Python job fetches each configured coin's 1-day market-chart and OHLC
+endpoints and uploads each response directly to a Unity Catalog Volume. It
 does not create local temporary JSON files.
+
+Each saved file contains the request metadata and parsed CoinGecko response:
+
+```json
+{
+  "endpoint": "/coins/bitcoin/market_chart",
+  "parameters": {"vs_currency": "usd", "days": "1"},
+  "response": {"prices": [], "market_caps": [], "total_volumes": []}
+}
+```
 
 Files are append-only and named like:
 

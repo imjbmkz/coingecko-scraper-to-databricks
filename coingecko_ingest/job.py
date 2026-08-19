@@ -1,13 +1,13 @@
-"""Fetch raw CoinGecko JSON responses and upload them to a Databricks Volume."""
+"""Fetch CoinGecko JSON responses and upload them to a Databricks Volume."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Mapping
 from urllib.parse import quote
 
@@ -19,9 +19,10 @@ from urllib3.util.retry import Retry
 
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 ENDPOINTS: Mapping[str, str] = {
-    "market_chart": "/coins/{coin_id}/market_chart?vs_currency=usd&days=1",
-    "ohlc": "/coins/{coin_id}/ohlc?vs_currency=usd&days=1",
+    "market_chart": "/coins/{coin_id}/market_chart",
+    "ohlc": "/coins/{coin_id}/ohlc",
 }
+REQUEST_PARAMETERS: Mapping[str, str] = {"vs_currency": "usd", "days": "1"}
 COIN_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 DEFAULT_COINS_FILE = Path(__file__).resolve().parent.parent / "coins.txt"
 
@@ -112,7 +113,7 @@ def run_ingestion(
 ) -> list[str]:
     """Run one ingestion and return the Databricks paths that were written.
 
-    Responses remain in memory and are uploaded unchanged as raw bytes. No local
+    Responses remain in memory and are uploaded in a metadata envelope. No local
     temporary files are created.
     """
     settings = settings or Settings.from_env()
@@ -133,17 +134,29 @@ def run_ingestion(
 
         for name, endpoint_template in ENDPOINTS.items():
             endpoint = endpoint_template.format(coin_id=coin_id)
-            source_response = session.get(COINGECKO_BASE_URL + endpoint, timeout=(10, 30))
+            source_response = session.get(
+                COINGECKO_BASE_URL + endpoint,
+                params=REQUEST_PARAMETERS,
+                timeout=(10, 30),
+            )
             source_response.raise_for_status()
-            # Validate JSON while preserving the exact original response bytes.
-            source_response.json()
+            document = {
+                "endpoint": endpoint,
+                "parameters": dict(REQUEST_PARAMETERS),
+                "response": source_response.json(),
+            }
+            document_bytes = json.dumps(
+                document,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
 
             destination = f"{destination_dir}/{name}_{run_timestamp}.json"
             upload_response = session.put(
                 _files_api_url(settings.databricks_host, destination),
                 params={"overwrite": "false"},
                 headers={**headers, "Content-Type": "application/octet-stream"},
-                data=source_response.content,
+                data=document_bytes,
                 timeout=(10, 60),
             )
             upload_response.raise_for_status()
